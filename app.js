@@ -1266,6 +1266,72 @@ app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
   }
 });
 
+app.get("/api/bills", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
+
+  try {
+    const query = "SELECT * FROM bills WHERE user_id = ? ORDER BY created_at DESC;";
+    const values = [userId];
+    const [results] = await pool.query(query, values);
+    // console.log("results", results);
+
+    res.status(200).json({ billList: results });
+  } catch (error) {
+    console.error("Failed to get bills", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/bills", authMiddleware, async (req, res) => {
+  // console.log("req.body", req.body);
+  const { userId } = req.user;
+  const { name, amount, date, category, recurring, period, directDebit } = req.body;
+  const newDate = new Date(date);
+
+  let query;
+  let values;
+  let insertId;
+  // For recurring bills, generate recurring bill template first
+  if (recurring) {
+    try {
+      query =
+        "INSERT INTO recurring_bills (user_id, name, amount, category, period, start_date, day_of_month, day_of_week, auto_pay, status, last_generated_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+
+      values = [
+        userId,
+        name,
+        amount,
+        category,
+        period,
+        newDate,
+        newDate.getDate(),
+        newDate.getDay(),
+        directDebit,
+        "active",
+        null,
+      ];
+
+      const [res] = await pool.query(query, values);
+      insertId = res.insertId;
+    } catch (error) {
+      console.error("Failed to create recurring bill template", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+  }
+
+  try {
+    query =
+      "INSERT INTO bills (user_id, recurring_bill_id, name, amount, date, category, status) VALUES (?, ?, ?, ?, ?, ?, ?);";
+    values = [userId, insertId, name, amount, newDate, category, "pending"];
+
+    await pool.query(query, values);
+    res.status(200).json({ message: "New bill created!" });
+  } catch (error) {
+    console.error("Failed to create new bill", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 app.get("/api/account-books-summary", authMiddleware, async (req, res) => {
   const { userId } = req.user;
 
