@@ -1332,6 +1332,45 @@ app.post("/api/bills", authMiddleware, async (req, res) => {
   }
 });
 
+app.patch("/api/bills/:id", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
+  const billId = req.params.id;
+  const { action } = req.body;
+  // console.log("action", action);
+
+  try {
+    let query = "UPDATE bills SET status = ? WHERE id = ? AND user_id = ?;";
+    const status = action === "pay" ? "completed" : "pending";
+    let values = [status, billId, userId, billId, userId];
+    await pool.query(query, values);
+
+    query = "SELECT * FROM bills WHERE id = ? AND user_id = ?;";
+    values = [billId, userId];
+    const [results] = await pool.query(query, values);
+    const updatedBill = results[0];
+
+    return res.status(200).json({ message: "Bill status updated!", bill: updatedBill });
+  } catch (error) {
+    console.error("Failed to update bill status", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.delete("/api/bills/:id", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
+  const billId = req.params.id;
+
+  try {
+    const query = "DELETE FROM bills WHERE id = ? AND user_id = ?;";
+    const values = [billId, userId];
+    await pool.query(query, values);
+    res.status(200).json({ message: "Deleted" });
+  } catch (error) {
+    console.error("Failed to delete bill", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 app.get("/api/account-books-summary", authMiddleware, async (req, res) => {
   const { userId } = req.user;
 
