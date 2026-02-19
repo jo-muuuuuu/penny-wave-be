@@ -1284,8 +1284,9 @@ app.get("/api/bills", authMiddleware, async (req, res) => {
 
 app.post("/api/bills", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
+
   const { userId } = req.user;
-  const { name, amount, date, category, recurring, period, directDebit } = req.body;
+  const { name, amount, date, category, recurring, period, direct_debit } = req.body;
   const newDate = new Date(date);
 
   let query;
@@ -1295,7 +1296,7 @@ app.post("/api/bills", authMiddleware, async (req, res) => {
   if (recurring) {
     try {
       query =
-        "INSERT INTO recurring_bills (user_id, name, amount, category, period, start_date, day_of_month, day_of_week, auto_pay, status, last_generated_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        "INSERT INTO recurring_bills (user_id, name, amount, category, period, start_date, day_of_month, day_of_week, direct_debit, status, last_generated_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
 
       values = [
         userId,
@@ -1306,7 +1307,7 @@ app.post("/api/bills", authMiddleware, async (req, res) => {
         newDate,
         newDate.getDate(),
         newDate.getDay(),
-        directDebit,
+        direct_debit,
         "active",
         null,
       ];
@@ -1321,8 +1322,8 @@ app.post("/api/bills", authMiddleware, async (req, res) => {
 
   try {
     query =
-      "INSERT INTO bills (user_id, recurring_bill_id, name, amount, date, category, status) VALUES (?, ?, ?, ?, ?, ?, ?);";
-    values = [userId, insertId, name, amount, newDate, category, "pending"];
+      "INSERT INTO bills (user_id, recurring_bill_id, name, amount, date, category, direct_debit, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
+    values = [userId, insertId, name, amount, newDate, category, direct_debit, "pending"];
 
     await pool.query(query, values);
     res.status(200).json({ message: "New bill created!" });
@@ -1352,6 +1353,25 @@ app.patch("/api/bills/:id", authMiddleware, async (req, res) => {
     return res.status(200).json({ message: "Bill status updated!", bill: updatedBill });
   } catch (error) {
     console.error("Failed to update bill status", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.put("/api/bills/:id", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
+  const billId = req.params.id;
+  const { name, amount, date, category, direct_debit } = req.body;
+  const newDate = new Date(date);
+
+  try {
+    let query =
+      "UPDATE bills SET name = ?, amount = ?, date = ?, category = ?, direct_debit = ? WHERE id = ? AND user_id = ?;";
+    let values = [name, amount, newDate, category, direct_debit, billId, userId];
+    await pool.query(query, values);
+
+    return res.status(200).json({ message: "Bill updated!" });
+  } catch (error) {
+    console.error("Failed to update bill", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });

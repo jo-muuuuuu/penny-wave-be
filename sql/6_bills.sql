@@ -7,6 +7,7 @@ CREATE TABLE bills (
     name VARCHAR(255) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     date DATE NOT NULL,
+    direct_debit BOOLEAN DEFAULT false,
     category VARCHAR(255) NOT NULL,
     status ENUM('pending', 'completed') DEFAULT 'pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

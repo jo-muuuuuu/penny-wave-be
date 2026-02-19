@@ -10,7 +10,7 @@ CREATE TABLE recurring_bills (
     start_date DATE NOT NULL,
     day_of_month INT DEFAULT NULL,   
     day_of_week INT DEFAULT NULL,   
-    auto_pay BOOLEAN DEFAULT false,
+    direct_debit BOOLEAN DEFAULT false,
     status ENUM('active', 'paused') DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_generated_date DATE DEFAULT NULL,
