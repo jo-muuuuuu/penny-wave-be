@@ -1286,44 +1286,13 @@ app.post("/api/bills", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
 
   const { userId } = req.user;
-  const { name, amount, date, category, recurring, period, direct_debit } = req.body;
-  const newDate = new Date(date);
-
-  let query;
-  let values;
-  let insertId;
-  // For recurring bills, generate recurring bill template first
-  if (recurring) {
-    try {
-      query =
-        "INSERT INTO recurring_bills (user_id, name, amount, category, period, start_date, day_of_month, day_of_week, direct_debit, status, last_generated_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
-
-      values = [
-        userId,
-        name,
-        amount,
-        category,
-        period,
-        newDate,
-        newDate.getDate(),
-        newDate.getDay(),
-        direct_debit,
-        "active",
-        null,
-      ];
-
-      const [res] = await pool.query(query, values);
-      insertId = res.insertId;
-    } catch (error) {
-      console.error("Failed to create recurring bill template", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-  }
+  const { name, amount, due_date, category, direct_debit } = req.body;
+  const newDate = new Date(due_date);
 
   try {
-    query =
-      "INSERT INTO bills (user_id, recurring_bill_id, name, amount, date, category, direct_debit, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
-    values = [userId, insertId, name, amount, newDate, category, direct_debit, "pending"];
+    let query =
+      "INSERT INTO bills (user_id, name, amount, date, category, direct_debit, status) VALUES ( ?, ?, ?, ?, ?, ?, ?);";
+    let values = [userId, name, amount, newDate, category, direct_debit, "pending"];
 
     await pool.query(query, values);
     res.status(200).json({ message: "New bill created!" });
@@ -1383,6 +1352,72 @@ app.delete("/api/bills/:id", authMiddleware, async (req, res) => {
   try {
     const query = "DELETE FROM bills WHERE id = ? AND user_id = ?;";
     const values = [billId, userId];
+    await pool.query(query, values);
+    res.status(200).json({ message: "Deleted" });
+  } catch (error) {
+    console.error("Failed to delete bill", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/api/recurring-bills", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
+
+  try {
+    const query =
+      "SELECT * FROM recurring_bills WHERE user_id = ? ORDER BY created_at DESC;";
+    const values = [userId];
+    const [results] = await pool.query(query, values);
+    // console.log("results", results);
+
+    res.status(200).json({ recurringBillList: results });
+  } catch (error) {
+    console.error("Failed to get recurring bills", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/recurring-bills", authMiddleware, async (req, res) => {
+  // console.log(req.body);
+
+  const { userId } = req.user;
+  const { name, amount, start_date, category, period, direct_debit } = req.body;
+  const newDate = new Date(start_date);
+
+  try {
+    let query =
+      "INSERT INTO recurring_bills (user_id, name, amount, category, period, start_date, day_of_month, day_of_week, direct_debit, status, last_generated_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+
+    let values = [
+      userId,
+      name,
+      amount,
+      category,
+      period,
+      newDate,
+      newDate.getDate(),
+      newDate.getDay(),
+      direct_debit,
+      "active",
+      null,
+    ];
+
+    await pool.query(query, values);
+    res.status(200).json({ message: "New Recurring Bill Created!" });
+  } catch (error) {
+    console.error("Failed to create recurring bill template", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.delete("/api/recurring-bills/:id", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
+  const recurringBillId = req.params.id;
+
+  try {
+    const query = "DELETE FROM recurring_bills WHERE id = ? AND user_id = ?;";
+    const values = [recurringBillId, userId];
+
     await pool.query(query, values);
     res.status(200).json({ message: "Deleted" });
   } catch (error) {
