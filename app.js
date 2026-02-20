@@ -1311,7 +1311,7 @@ app.patch("/api/bills/:id", authMiddleware, async (req, res) => {
   try {
     let query = "UPDATE bills SET status = ? WHERE id = ? AND user_id = ?;";
     const status = action === "pay" ? "completed" : "pending";
-    let values = [status, billId, userId, billId, userId];
+    let values = [status, billId, userId];
     await pool.query(query, values);
 
     query = "SELECT * FROM bills WHERE id = ? AND user_id = ?;";
@@ -1329,8 +1329,8 @@ app.patch("/api/bills/:id", authMiddleware, async (req, res) => {
 app.put("/api/bills/:id", authMiddleware, async (req, res) => {
   const { userId } = req.user;
   const billId = req.params.id;
-  const { name, amount, date, category, direct_debit } = req.body;
-  const newDate = new Date(date);
+  const { name, amount, due_date, category, direct_debit } = req.body;
+  const newDate = new Date(due_date);
 
   try {
     let query =
@@ -1404,6 +1404,63 @@ app.post("/api/recurring-bills", authMiddleware, async (req, res) => {
 
     await pool.query(query, values);
     res.status(200).json({ message: "New Recurring Bill Created!" });
+  } catch (error) {
+    console.error("Failed to create recurring bill template", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.patch("/api/recurring-bills/:id", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
+  const recurringBillId = req.params.id;
+  const { action } = req.body;
+
+  try {
+    let query = "UPDATE recurring_bills SET status = ? WHERE id = ? AND user_id = ?;";
+    const status = action === "resume" ? "active" : "paused";
+    let values = [status, recurringBillId, userId];
+    await pool.query(query, values);
+
+    query = "SELECT * FROM recurring_bills WHERE id = ? AND user_id = ?;";
+    values = [recurringBillId, userId];
+    const [results] = await pool.query(query, values);
+    const updatedRecurringBill = results[0];
+
+    return res
+      .status(200)
+      .json({ message: "Bill status updated!", recurringBill: updatedRecurringBill });
+  } catch (error) {
+    console.error("Failed to update bill status", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.put("/api/recurring-bills/:id", authMiddleware, async (req, res) => {
+  const { userId } = req.user;
+  const recurringBillId = req.params.id;
+
+  const { name, amount, start_date, category, period, direct_debit } = req.body;
+  const newDate = new Date(start_date);
+
+  try {
+    let query =
+      "UPDATE recurring_bills SET user_id = ?, name = ?, amount = ?, category = ?, period = ?, start_date = ?, day_of_month = ?, day_of_week = ?, direct_debit = ? WHERE id = ?;";
+
+    let values = [
+      userId,
+      name,
+      amount,
+      category,
+      period,
+      newDate,
+      newDate.getDate(),
+      newDate.getDay(),
+      direct_debit,
+      recurringBillId,
+    ];
+
+    await pool.query(query, values);
+    res.status(200).json({ message: "Recurring Bill Updated!" });
   } catch (error) {
     console.error("Failed to create recurring bill template", error);
     return res.status(500).json({ error: "Internal Server Error" });
