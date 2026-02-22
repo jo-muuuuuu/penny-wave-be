@@ -62,6 +62,13 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+async function generatePassword(length = 32) {
+  const rawPassword = crypto.randomBytes(length).toString("hex");
+  const hashedPassword = await bcrypt.hash(rawPassword, 10);
+  return hashedPassword;
+}
+
+// #region Authentication
 app.post("/api/register", async (req, res) => {
   //   console.log(req.body);
   const { nickname, email, password } = req.body;
@@ -120,12 +127,6 @@ app.post("/api/login", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
-async function generatePassword(length = 32) {
-  const rawPassword = crypto.randomBytes(length).toString("hex");
-  const hashedPassword = await bcrypt.hash(rawPassword, 10);
-  return hashedPassword;
-}
 
 app.post("/api/google-login", async (req, res) => {
   const { access_token } = req.body;
@@ -373,18 +374,18 @@ app.post("/api/forgot-password", async (req, res) => {
       subject: "Penny Wave - Reset Your Password",
       text: `Dear ${results[0].nickname || "User"},
 
-We received a request to reset the password for your Penny Wave account.
+            We received a request to reset the password for your Penny Wave account.
 
-Please click the link below to set a new password:
-${resetLink}
+            Please click the link below to set a new password:
+            ${resetLink}
 
-If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.
+            If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.
 
-For security reasons, this link will expire in a limited time.
+            For security reasons, this link will expire in a limited time.
 
-Best regards,
-Penny Wave Team
-`,
+            Best regards,
+            Penny Wave Team
+            `,
     };
 
     await transporter.sendMail(mailOptions);
@@ -494,6 +495,7 @@ app.post("/api/profile-reset-password", authMiddleware, async (req, res) => {
     }
   }
 });
+// #endregion
 
 app.post(
   "/api/upload-avatar",
@@ -519,6 +521,7 @@ app.post(
   },
 );
 
+// #region Account Books
 app.post("/api/account-books", authMiddleware, async (req, res) => {
   const { userId } = req.user;
   const { name, tag, description } = req.body;
@@ -588,6 +591,9 @@ app.delete("/api/account-books/:id", authMiddleware, async (req, res) => {
   }
 });
 
+// #endregion
+
+// #region Transactions
 app.post("/api/transactions", authMiddleware, async (req, res) => {
   const { userId } = req.user;
   const { amount, date, type, description, select, category } = req.body;
@@ -695,6 +701,7 @@ app.put("/api/transactions/:id", authMiddleware, async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
+// #endregion
 
 function calculateNewEndDate(end_date, period, periods) {
   const start = dayjs(end_date);
@@ -774,6 +781,7 @@ function generateDepositDates(startDate, endDate, period, totalPeriods) {
   return depositDates;
 }
 
+// #region Savings Plans
 app.post("/api/savings-plans", authMiddleware, async (req, res) => {
   // console.log("req.body", req.body);
   const { userId } = req.user;
@@ -896,7 +904,6 @@ app.delete("/api/savings-plans/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// update savings plan
 app.put("/api/savings-plans/:id", authMiddleware, async (req, res) => {
   // console.log(req.body);
   const savingsPlanId = req.params.id;
@@ -1075,7 +1082,9 @@ app.patch("/api/savings-plans/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+// #endregion
 
+// #region Deposits
 app.get("/api/deposits", authMiddleware, async (req, res) => {
   // console.log(req.headers);
   const { count } = req.query;
@@ -1265,7 +1274,9 @@ app.put("/api/deposits/reset/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+// #endregion
 
+// #region Bills
 app.get("/api/bills", authMiddleware, async (req, res) => {
   const { userId } = req.user;
 
@@ -1359,7 +1370,9 @@ app.delete("/api/bills/:id", authMiddleware, async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
+// #endregion
 
+// #region Recurring Bills
 app.get("/api/recurring-bills", authMiddleware, async (req, res) => {
   const { userId } = req.user;
 
@@ -1482,7 +1495,9 @@ app.delete("/api/recurring-bills/:id", authMiddleware, async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
+// #endregion
 
+// #region Dashboard Data Visualization
 app.get("/api/account-books-summary", authMiddleware, async (req, res) => {
   const { userId } = req.user;
 
@@ -1579,7 +1594,85 @@ app.get("/api/category-ratio", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+// #endregion
+
+// #region Generate Bills from Reucrring Bill Templates
+function getNextBillDate(template, lastGenerated) {
+  switch (template.period) {
+    case "week":
+      return lastGenerated.add(1, "week");
+    case "fortnight":
+      return lastGenerated.add(2, "week");
+    case "month":
+      return nextMonthDate(lastGenerated, 1, template.day_of_month);
+    case "quarter":
+      return nextMonthDate(lastGenerated, 3, template.day_of_month);
+    case "year":
+      return lastGenerated.add(1, "year");
+    default:
+      return "Unkown Period";
+  }
+}
+
+// Handle edge cases like 28th, 30th, 31st
+function nextMonthDate(lastGenerated, offset, dayOfMonth) {
+  let next = lastGenerated.add(offset, "month");
+  if (!dayOfMonth) return next;
+
+  const daysInMonth = next.daysInMonth();
+  const finalDay = Math.min(dayOfMonth, daysInMonth);
+  return next.date(finalDay);
+}
+
+async function generateBillsFromTemplate() {
+  let query = `SELECT * FROM recurring_bills WHERE status = 'active' AND start_date <= CURDATE();`;
+  let values;
+
+  const [templates] = await pool.query(query);
+  // console.log(templates);
+
+  let today = dayjs().startOf("day");
+
+  for (const template of templates) {
+    const lastGenerated = template.last_generate_date
+      ? dayjs(template.last_generated_date)
+      : dayjs(template.start_date);
+
+    const nextDate = getNextBillDate(template, lastGenerated);
+    if (nextDate.isAfter(today, "day")) continue;
+
+    const dateStr = nextDate.format("YYYY-MM-DD");
+
+    // avoid duplicates
+    query = `SELECT id FROM bills WHERE recurring_bill_id = ? AND date = ?`;
+    values = [template.id, dateStr];
+
+    const [exists] = await pool.query(query, values);
+    if (exists.length) continue;
+
+    // generate bills
+    query = `INSERT INTO bills (user_id, recurring_bill_id, name, amount, date, category, direct_debit) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    values = [
+      template.user_id,
+      template.id,
+      template.name,
+      template.amount,
+      dateStr,
+      template.category,
+      template.direct_debit,
+    ];
+
+    await pool.query(query, values);
+
+    // update recurring bill templates
+    query = `UPDATE recurring_bills SET last_generated_date = ? WHERE id = ?`;
+    values = [dateStr, template.id];
+    await pool.query(query, values);
+  }
+}
+// #endregion
 
 app.listen(6789, () => {
   console.log("Server Listening on Port 6789...");
+  generateBillsFromTemplate();
 });
