@@ -1596,7 +1596,16 @@ app.get("/api/category-ratio", authMiddleware, async (req, res) => {
 });
 // #endregion
 
-// #region Generate Bills from Reucrring Bill Templates
+// #region Generate Bills from Recurring Bill Templates
+const { CronJob } = require("cron");
+
+// Handle edge cases for months with fewer days (e.g. 31st in February)
+function nextMonthDate(base, monthOffset, dayOfMonth) {
+  let next = base.add(monthOffset, "month");
+  const finalDay = Math.min(dayOfMonth, next.daysInMonth());
+  return next.date(finalDay);
+}
+
 function getNextBillDate(template, lastGenerated) {
   switch (template.period) {
     case "week":
@@ -1610,69 +1619,66 @@ function getNextBillDate(template, lastGenerated) {
     case "year":
       return lastGenerated.add(1, "year");
     default:
-      return "Unkown Period";
+      throw new Error(`Unknown period: ${template.period}`);
   }
 }
 
-// Handle edge cases like 28th, 30th, 31st
-function nextMonthDate(lastGenerated, offset, dayOfMonth) {
-  let next = lastGenerated.add(offset, "month");
-  if (!dayOfMonth) return next;
+async function generateBillsFromTemplates() {
+  console.log("[Cron] Running recurring bill generation...");
+  try {
+    const [templates] = await pool.query(
+      "SELECT * FROM recurring_bills WHERE status = 'active' AND start_date <= CURDATE();"
+    );
 
-  const daysInMonth = next.daysInMonth();
-  const finalDay = Math.min(dayOfMonth, daysInMonth);
-  return next.date(finalDay);
-}
+    const today = dayjs().startOf("day");
 
-async function generateBillsFromTemplate() {
-  let query = `SELECT * FROM recurring_bills WHERE status = 'active' AND start_date <= CURDATE();`;
-  let values;
+    for (const template of templates) {
+      // First bill: generate on start_date itself; subsequent bills: add period to last generated date
+      let nextDate = template.last_generated_date
+        ? getNextBillDate(template, dayjs(template.last_generated_date).startOf("day"))
+        : dayjs(template.start_date).startOf("day");
 
-  const [templates] = await pool.query(query);
-  // console.log(templates);
+      // Catch up all missed bills up to today
+      while (!nextDate.isAfter(today, "day")) {
+        const dateStr = nextDate.format("YYYY-MM-DD");
 
-  let today = dayjs().startOf("day");
+        // Avoid duplicates
+        const [exists] = await pool.query(
+          "SELECT id FROM bills WHERE recurring_bill_id = ? AND date = ?",
+          [template.id, dateStr]
+        );
 
-  for (const template of templates) {
-    const lastGenerated = template.last_generate_date
-      ? dayjs(template.last_generated_date)
-      : dayjs(template.start_date);
+        if (!exists.length) {
+          await pool.query(
+            "INSERT INTO bills (user_id, recurring_bill_id, name, amount, date, category, direct_debit) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [template.user_id, template.id, template.name, template.amount, dateStr, template.category, template.direct_debit]
+          );
+          console.log(`[Cron] Generated bill for template #${template.id} (${template.name}) on ${dateStr}`);
+        }
 
-    const nextDate = getNextBillDate(template, lastGenerated);
-    if (nextDate.isAfter(today, "day")) continue;
+        // Always advance last_generated_date even if bill already existed (prevents re-checking old dates)
+        await pool.query(
+          "UPDATE recurring_bills SET last_generated_date = ? WHERE id = ?",
+          [dateStr, template.id]
+        );
 
-    const dateStr = nextDate.format("YYYY-MM-DD");
-
-    // avoid duplicates
-    query = `SELECT id FROM bills WHERE recurring_bill_id = ? AND date = ?`;
-    values = [template.id, dateStr];
-
-    const [exists] = await pool.query(query, values);
-    if (exists.length) continue;
-
-    // generate bills
-    query = `INSERT INTO bills (user_id, recurring_bill_id, name, amount, date, category, direct_debit) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-    values = [
-      template.user_id,
-      template.id,
-      template.name,
-      template.amount,
-      dateStr,
-      template.category,
-      template.direct_debit,
-    ];
-
-    await pool.query(query, values);
-
-    // update recurring bill templates
-    query = `UPDATE recurring_bills SET last_generated_date = ? WHERE id = ?`;
-    values = [dateStr, template.id];
-    await pool.query(query, values);
+        nextDate = getNextBillDate(template, nextDate);
+      }
+    }
+    console.log("[Cron] Recurring bill generation complete.");
+  } catch (error) {
+    console.error("[Cron] Failed to generate recurring bills:", error);
   }
 }
 // #endregion
 
 app.listen(6789, () => {
   console.log("Server Listening on Port 6789...");
-  generateBillsFromTemplate();
+
+  // Run immediately on startup to catch any missed bills
+  generateBillsFromTemplates();
+
+  // Then run every day at midnight
+  new CronJob("0 0 * * *", generateBillsFromTemplates, null, true);
+  console.log("[Cron] Recurring bill cron job scheduled (daily at midnight).");
 });
