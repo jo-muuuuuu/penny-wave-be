@@ -9,7 +9,7 @@ This project focuses on real-life usability, clean UI, and clear financial insig
 
 ## 🖥️ Demo
 
-This project is now live: [Penny Wave](https://pennywave.net)
+<!-- This project is now live: [Penny Wave](https://pennywave.net) -->
 
 Watch the demo video: [Demo Video](https://www.youtube.com/watch?v=-0Kt80Snxmk)
 
